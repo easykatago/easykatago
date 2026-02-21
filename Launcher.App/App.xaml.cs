@@ -21,7 +21,7 @@ public partial class App : Application
                 AppLogService.Error($"未处理异常: {args.Exception}");
                 MessageBox.Show(
                     "程序发生未处理异常，请查看日志后重试。",
-                    "EasyKataGo Launcher",
+                    "EasyKataGo",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 args.Handled = true;
@@ -36,7 +36,7 @@ public partial class App : Application
 
             MessageBox.Show(
                 $"启动失败：{ex.Message}\n请检查程序目录写权限后重试。",
-                "EasyKataGo Launcher",
+                "EasyKataGo",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(-1);

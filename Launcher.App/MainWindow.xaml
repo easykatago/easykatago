@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="KataGo + LizzieYzy 启动器"
+        Title="EasyKataGo"
         Icon="Assets/app.ico"
         Height="760"
         Width="1280"
@@ -36,8 +36,8 @@
                             <TextBlock Text="围" Foreground="White" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <StackPanel>
-                            <TextBlock Text="EasyKataGo Launcher" FontSize="16" FontWeight="SemiBold" />
-                            <TextBlock Text="KataGo + LizzieYzy 一键管理" FontSize="12" Foreground="{StaticResource Brush.TextSecondary}" />
+                            <TextBlock Text="EasyKataGo" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="KataGo引擎+权重文件一站式管理" FontSize="12" Foreground="{StaticResource Brush.TextSecondary}" />
                         </StackPanel>
                     </StackPanel>
                 </Grid>
