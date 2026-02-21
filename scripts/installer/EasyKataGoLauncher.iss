@@ -33,7 +33,13 @@ WizardStyle=modern
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+#ifexist "compiler:Languages\ChineseSimplified.isl"
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+#else
+  #ifexist "compiler:Languages\ChineseSimplified-12-0.isl"
+Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified-12-0.isl"
+  #endif
+#endif
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
