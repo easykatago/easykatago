@@ -22,5 +22,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\publish-win-x64.ps1 -SelfCont
 
 发布产物位于 `dist\win-x64\`，主程序为 `EasyKataGoLauncher.exe`。
 
+## 启动器发布页
+- GitHub Releases: https://github.com/easykatago/easykatago/releases
+
 ## 许可证
 MIT（见 `LICENSE`）
+
+## 鸣谢
+- KataGo: https://github.com/lightvector/KataGo
+- LizzieYzy: https://github.com/yzyray/lizzieyzy
+- KataGo Networks: https://katagotraining.org/networks/
