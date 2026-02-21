@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -13,6 +14,7 @@ public sealed class ProfilesPage : Page
 {
     private readonly BootstrapService _bootstrap;
     private readonly IProfileService _profileService;
+    private readonly SettingsStoreService _settingsStoreService;
     private readonly ListBox _profilesList;
     private readonly TextBlock _defaultBadge;
     private readonly TextBlock _profileName;
@@ -29,6 +31,7 @@ public sealed class ProfilesPage : Page
     {
         _bootstrap = new BootstrapService(AppContext.BaseDirectory);
         _profileService = new JsonProfileService(_bootstrap.ProfilesPath);
+        _settingsStoreService = new SettingsStoreService();
         Background = Brushes.Transparent;
 
         var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
@@ -344,12 +347,10 @@ public sealed class ProfilesPage : Page
             return;
         }
 
-        var katago = ResolvePath(selected.Katago.Path);
-        var model = ResolvePath(selected.Network.Path);
-        var cfg = ResolvePath(selected.Config.Path);
-        if (!File.Exists(katago) || !File.Exists(model) || !File.Exists(cfg))
+        var inputs = await ResolveTuningInputsAsync(selected);
+        if (!inputs.Success)
         {
-            SetStatus("基准测试失败：缺少 katago/model/config 文件。", Brushes.IndianRed);
+            SetStatus($"基准测试失败：{inputs.ErrorMessage}", Brushes.IndianRed);
             return;
         }
 
@@ -359,7 +360,7 @@ public sealed class ProfilesPage : Page
         _manualThreadsInput.Text = string.Empty;
 
         var svc = new ProcessTuningService();
-        var result = await svc.RunBenchmarkAsync(katago, model, cfg, new Progress<string>(line =>
+        var result = await svc.RunBenchmarkAsync(inputs.KatagoPath, inputs.ModelPath, inputs.ConfigPath, new Progress<string>(line =>
         {
             _tuningLogBox.AppendText(line + Environment.NewLine);
             _tuningLogBox.ScrollToEnd();
@@ -419,15 +420,15 @@ public sealed class ProfilesPage : Page
             return;
         }
 
-        var cfg = ResolvePath(selected.Config.Path);
-        if (!File.Exists(cfg))
+        var inputs = await ResolveTuningInputsAsync(selected);
+        if (!inputs.Success)
         {
-            SetStatus("写回失败：找不到配置文件。", Brushes.IndianRed);
+            SetStatus($"写回失败：{inputs.ErrorMessage}", Brushes.IndianRed);
             return;
         }
 
         var svc = new ProcessTuningService();
-        await svc.ApplyRecommendedThreadsAsync(cfg, threads);
+        await svc.ApplyRecommendedThreadsAsync(inputs.ConfigPath, threads);
         SetStatus($"已写回 numSearchThreads = {threads}（来源：{source}，已创建备份）。", Brushes.ForestGreen);
         AppLogService.Info($"写回线程: {threads}, source={source}");
 
@@ -457,18 +458,16 @@ public sealed class ProfilesPage : Page
             return;
         }
 
-        var katago = ResolvePath(selected.Katago.Path);
-        var model = ResolvePath(selected.Network.Path);
-        var cfg = ResolvePath(selected.Config.Path);
-        if (!File.Exists(katago) || !File.Exists(model) || !File.Exists(cfg))
+        var inputs = await ResolveTuningInputsAsync(selected);
+        if (!inputs.Success)
         {
-            SetStatus("调优失败：缺少 katago/model/config 文件。", Brushes.IndianRed);
+            SetStatus($"调优失败：{inputs.ErrorMessage}", Brushes.IndianRed);
             return;
         }
 
         _tuningLogBox.Clear();
         var svc = new ProcessTuningService();
-        var result = await svc.RunTunerAsync(katago, model, cfg, new Progress<string>(line =>
+        var result = await svc.RunTunerAsync(inputs.KatagoPath, inputs.ModelPath, inputs.ConfigPath, new Progress<string>(line =>
         {
             _tuningLogBox.AppendText(line + Environment.NewLine);
             _tuningLogBox.ScrollToEnd();
@@ -528,6 +527,363 @@ public sealed class ProfilesPage : Page
             AppLogService.Warn($"保存调优状态失败: {ex.Message}");
         }
     }
+
+    private async Task<TuningInputsResolveResult> ResolveTuningInputsAsync(ProfileModel selected)
+    {
+        var katagoPath = ResolvePath(selected.Katago.Path);
+        var modelPath = ResolvePath(selected.Network.Path);
+        var configPath = ResolvePath(selected.Config.Path);
+        var roots = await BuildSearchRootsAsync();
+
+        if (!File.Exists(katagoPath))
+        {
+            var foundKatago = FindKatagoPath(roots, selected.Katago.Version, selected.Katago.Backend);
+            if (!string.IsNullOrWhiteSpace(foundKatago))
+            {
+                katagoPath = foundKatago;
+            }
+        }
+
+        if (!File.Exists(modelPath))
+        {
+            var foundModel = FindNetworkPath(roots, selected.Network.Id, selected.Network.Name);
+            if (!string.IsNullOrWhiteSpace(foundModel))
+            {
+                modelPath = foundModel;
+            }
+        }
+
+        if (!File.Exists(configPath))
+        {
+            var foundConfig = FindConfigPath(roots, selected.Config.Id);
+            if (!string.IsNullOrWhiteSpace(foundConfig))
+            {
+                configPath = foundConfig;
+            }
+        }
+
+        var missing = new List<string>();
+        if (!File.Exists(katagoPath))
+        {
+            missing.Add($"katago={katagoPath}");
+        }
+
+        if (!File.Exists(modelPath))
+        {
+            missing.Add($"model={modelPath}");
+        }
+
+        if (!File.Exists(configPath))
+        {
+            missing.Add($"config={configPath}");
+        }
+
+        if (missing.Count > 0)
+        {
+            AppLogService.Warn($"路径解析失败: {string.Join(" | ", missing)}");
+            return new TuningInputsResolveResult(false, katagoPath, modelPath, configPath, string.Join(" | ", missing));
+        }
+
+        var normalizedKatago = NormalizeProfilePath(_bootstrap.AppRoot, katagoPath);
+        var normalizedModel = NormalizeProfilePath(_bootstrap.AppRoot, modelPath);
+        var normalizedConfig = NormalizeProfilePath(_bootstrap.AppRoot, configPath);
+        var needsUpdate =
+            !string.Equals(selected.Katago.Path, normalizedKatago, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(selected.Network.Path, normalizedModel, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(selected.Config.Path, normalizedConfig, StringComparison.OrdinalIgnoreCase);
+
+        if (needsUpdate)
+        {
+            var updated = selected with
+            {
+                Katago = selected.Katago with { Path = normalizedKatago },
+                Network = selected.Network with { Path = normalizedModel },
+                Config = selected.Config with { Path = normalizedConfig },
+                UpdatedAt = DateTimeOffset.Now
+            };
+
+            _profiles = _profileService.Upsert(_profiles, updated, setAsDefault: false);
+            await _profileService.SaveAsync(_profiles);
+            AppLogService.Info($"已自动修复档案路径: {selected.ProfileId}");
+            UpdateSelectedView();
+        }
+
+        return new TuningInputsResolveResult(true, katagoPath, modelPath, configPath, null);
+    }
+
+    private async Task<IReadOnlyList<string>> BuildSearchRootsAsync()
+    {
+        var roots = new List<string>();
+        TryAddRoot(roots, _bootstrap.AppRoot);
+
+        try
+        {
+            var settings = await _settingsStoreService.LoadAsync(_bootstrap.SettingsPath);
+            var installRoot = string.IsNullOrWhiteSpace(settings.InstallRoot) ? "." : settings.InstallRoot.Trim();
+            var resolved = Path.IsPathRooted(installRoot)
+                ? Path.GetFullPath(installRoot)
+                : Path.GetFullPath(Path.Combine(_bootstrap.AppRoot, installRoot));
+            TryAddRoot(roots, resolved);
+        }
+        catch
+        {
+            // ignore settings parse errors; app root search is still valid
+        }
+
+        return roots;
+    }
+
+    private static void TryAddRoot(ICollection<string> roots, string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            return;
+        }
+
+        var full = Path.GetFullPath(root);
+        if (!Directory.Exists(full))
+        {
+            return;
+        }
+
+        if (roots.Any(x => string.Equals(x, full, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        roots.Add(full);
+    }
+
+    private static string FindKatagoPath(IReadOnlyList<string> roots, string? version, string? backend)
+    {
+        foreach (var root in roots)
+        {
+            var direct = Path.Combine(root, "components", "katago", version ?? string.Empty, backend ?? "opencl", "katago.exe");
+            if (File.Exists(direct))
+            {
+                return direct;
+            }
+        }
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            var baseDir = Path.Combine(root, "components", "katago");
+            foreach (var file in EnumerateFilesSafe(baseDir, "katago.exe"))
+            {
+                candidates.Add(file);
+            }
+
+            foreach (var file in EnumerateFilesSafe(baseDir, "*.exe"))
+            {
+                candidates.Add(file);
+            }
+        }
+
+        return candidates
+            .Select(path => new { Path = path, Score = ScoreKatagoPath(path, version, backend) })
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Path.Length)
+            .Select(x => x.Path)
+            .FirstOrDefault() ?? string.Empty;
+    }
+
+    private static string FindNetworkPath(IReadOnlyList<string> roots, string? networkId, string? networkName)
+    {
+        foreach (var root in roots)
+        {
+            var directRoot = Path.Combine(root, "components", "networks", networkId ?? string.Empty);
+            var direct = EnumerateFilesSafe(directRoot, "model.bin.gz").FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(direct))
+            {
+                return direct;
+            }
+        }
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            var baseDir = Path.Combine(root, "components", "networks");
+            foreach (var file in EnumerateFilesSafe(baseDir, "model.bin.gz"))
+            {
+                candidates.Add(file);
+            }
+
+            foreach (var file in EnumerateFilesSafe(baseDir, "*.bin.gz"))
+            {
+                candidates.Add(file);
+            }
+        }
+
+        return candidates
+            .Select(path => new { Path = path, Score = ScoreNetworkPath(path, networkId, networkName) })
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Path.Length)
+            .Select(x => x.Path)
+            .FirstOrDefault() ?? string.Empty;
+    }
+
+    private static string FindConfigPath(IReadOnlyList<string> roots, string? configId)
+    {
+        foreach (var root in roots)
+        {
+            var direct = Path.Combine(root, "components", "configs", configId ?? string.Empty, "1", "config.cfg");
+            if (File.Exists(direct))
+            {
+                return direct;
+            }
+        }
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var root in roots)
+        {
+            var baseDir = Path.Combine(root, "components", "configs");
+            foreach (var file in EnumerateFilesSafe(baseDir, "config.cfg"))
+            {
+                candidates.Add(file);
+            }
+
+            foreach (var file in EnumerateFilesSafe(baseDir, "*.cfg"))
+            {
+                candidates.Add(file);
+            }
+        }
+
+        return candidates
+            .Select(path => new { Path = path, Score = ScoreConfigPath(path, configId) })
+            .OrderByDescending(x => x.Score)
+            .ThenBy(x => x.Path.Length)
+            .Select(x => x.Path)
+            .FirstOrDefault() ?? string.Empty;
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafe(string root, string pattern)
+    {
+        try
+        {
+            if (!Directory.Exists(root))
+            {
+                return [];
+            }
+
+            return Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static int ScoreKatagoPath(string path, string? version, string? backend)
+    {
+        var score = 0;
+        var normalized = path.Replace('\\', '/');
+        var file = Path.GetFileName(path);
+
+        if (string.Equals(file, "katago.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1000;
+        }
+
+        if (!string.IsNullOrWhiteSpace(version) && normalized.Contains($"/{version}/", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 240;
+        }
+
+        if (!string.IsNullOrWhiteSpace(backend) && normalized.Contains($"/{backend}/", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 160;
+        }
+
+        if (file.Contains("katago", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 100;
+        }
+
+        if (file.StartsWith("unins", StringComparison.OrdinalIgnoreCase) ||
+            file.Contains("uninstall", StringComparison.OrdinalIgnoreCase) ||
+            file.Contains("updater", StringComparison.OrdinalIgnoreCase) ||
+            file.Contains("update", StringComparison.OrdinalIgnoreCase))
+        {
+            score -= 300;
+        }
+
+        score -= normalized.Count(c => c == '/');
+        return score;
+    }
+
+    private static int ScoreNetworkPath(string path, string? networkId, string? networkName)
+    {
+        var score = 0;
+        var normalized = path.Replace('\\', '/');
+        var file = Path.GetFileName(path);
+
+        if (string.Equals(file, "model.bin.gz", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 700;
+        }
+
+        if (!string.IsNullOrWhiteSpace(networkId) && normalized.Contains(networkId, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 220;
+        }
+
+        if (!string.IsNullOrWhiteSpace(networkName) && normalized.Contains(networkName, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 100;
+        }
+
+        score -= normalized.Count(c => c == '/');
+        return score;
+    }
+
+    private static int ScoreConfigPath(string path, string? configId)
+    {
+        var score = 0;
+        var normalized = path.Replace('\\', '/');
+        var file = Path.GetFileName(path);
+
+        if (string.Equals(file, "config.cfg", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 600;
+        }
+
+        if (!string.IsNullOrWhiteSpace(configId) && normalized.Contains(configId, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 220;
+        }
+
+        score -= normalized.Count(c => c == '/');
+        return score;
+    }
+
+    private static string NormalizeProfilePath(string appRoot, string path)
+    {
+        var fullRoot = Path.GetFullPath(appRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var fullPath = Path.GetFullPath(path);
+        if (IsSubPathOf(fullRoot, fullPath))
+        {
+            return Path.GetRelativePath(fullRoot, fullPath).Replace('\\', '/');
+        }
+
+        return fullPath;
+    }
+
+    private static bool IsSubPathOf(string basePath, string childPath)
+    {
+        var baseWithSep = basePath.EndsWith(Path.DirectorySeparatorChar)
+            ? basePath
+            : basePath + Path.DirectorySeparatorChar;
+        return childPath.StartsWith(baseWithSep, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(childPath, basePath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record TuningInputsResolveResult(
+        bool Success,
+        string KatagoPath,
+        string ModelPath,
+        string ConfigPath,
+        string? ErrorMessage);
 
     private string BuildAbsoluteGtpCommand(ProfileModel selected)
     {
