@@ -63,7 +63,8 @@ public sealed class InstallWorkflowService
                 client,
                 log: null,
                 cancellationToken,
-                preferredBackend: "cuda");
+                preferredBackend: "cuda",
+                allowUnverified: true);
             return TryExtractCudaVersion(resolved);
         }
         catch (Exception ex)
@@ -101,10 +102,15 @@ public sealed class InstallWorkflowService
 
             using var client = CreateHttpClient(settings, includeKataGoTrainingHeaders: true);
             using var dependencyClient = CreateHttpClient(settings, includeKataGoTrainingHeaders: false);
-            var resolvedKatago = await ResolveComponentIfNeededAsync("katago", katago, client, log, cancellationToken, preferredBackend);
-            var resolvedLizzie = await ResolveComponentIfNeededAsync("lizzieyzy", lizzie, client, log, cancellationToken);
-            var resolvedNetwork = await ResolveComponentIfNeededAsync("network", network, client, log, cancellationToken);
-            var resolvedConfig = await ResolveComponentIfNeededAsync("config", config, client, log, cancellationToken);
+            var resolvedKatago = await ResolveComponentIfNeededAsync("katago", katago, client, log, cancellationToken, preferredBackend, settings.Download.AllowUnverified);
+            var resolvedLizzie = await ResolveComponentIfNeededAsync("lizzieyzy", lizzie, client, log, cancellationToken, allowUnverified: settings.Download.AllowUnverified);
+            var resolvedNetwork = await ResolveComponentIfNeededAsync("network", network, client, log, cancellationToken, allowUnverified: settings.Download.AllowUnverified);
+            var resolvedConfig = await ResolveComponentIfNeededAsync("config", config, client, log, cancellationToken, allowUnverified: settings.Download.AllowUnverified);
+
+            resolvedKatago = await FillMissingIntegrityMetadataAsync(resolvedKatago, client, cancellationToken);
+            resolvedLizzie = await FillMissingIntegrityMetadataAsync(resolvedLizzie, client, cancellationToken);
+            resolvedNetwork = await FillMissingIntegrityMetadataAsync(resolvedNetwork, client, cancellationToken);
+            resolvedConfig = await FillMissingIntegrityMetadataAsync(resolvedConfig, client, cancellationToken);
 
             var items = new List<(string Kind, ComponentModel Component)>
             {
@@ -116,7 +122,7 @@ public sealed class InstallWorkflowService
 
             foreach (var item in items)
             {
-                var invalidReason = ValidateComponent(item.Component);
+                var invalidReason = ValidateComponent(item.Component, settings.Download.AllowUnverified);
                 if (invalidReason is not null)
                 {
                     return Fail($"组件信息无效（{item.Kind}）：{invalidReason}", installRoot);
@@ -165,14 +171,20 @@ public sealed class InstallWorkflowService
                     return Fail($"文件大小校验失败：{cachePath}", installRoot);
                 }
 
-                if (!string.IsNullOrWhiteSpace(component.Sha256))
+                var expectedSha256 = NormalizeSha256OrEmpty(component.Sha256);
+                if (!string.IsNullOrWhiteSpace(component.Sha256) && string.IsNullOrWhiteSpace(expectedSha256))
                 {
-                    if (ContainsPlaceholder(component.Sha256))
+                    return Fail($"组件 SHA256 格式不合法：{component.Id}", installRoot);
+                }
+
+                if (!string.IsNullOrWhiteSpace(expectedSha256))
+                {
+                    if (ContainsPlaceholder(expectedSha256))
                     {
                         return Fail($"组件 SHA256 仍为占位符：{component.Id}", installRoot);
                     }
 
-                    var hashOk = await verify.VerifySha256Async(cachePath, component.Sha256, cancellationToken);
+                    var hashOk = await verify.VerifySha256Async(cachePath, expectedSha256, cancellationToken);
                     if (!hashOk)
                     {
                         TryDelete(cachePath);
@@ -193,12 +205,16 @@ public sealed class InstallWorkflowService
                         }
 
                         cachePath = redownload.CachePath;
-                        hashOk = await verify.VerifySha256Async(cachePath, component.Sha256, cancellationToken);
+                        hashOk = await verify.VerifySha256Async(cachePath, expectedSha256, cancellationToken);
                         if (!hashOk)
                         {
                             return Fail($"SHA256 校验失败：{cachePath}", installRoot);
                         }
                     }
+                }
+                else if (!settings.Download.AllowUnverified && component.Size <= 0)
+                {
+                    return Fail($"组件缺少可校验的完整性元数据（sha256/size）：{component.Id}", installRoot);
                 }
 
                 var installedPath = await installer.InstallAsync(component, cachePath, installRoot, cancellationToken);
@@ -217,6 +233,7 @@ public sealed class InstallWorkflowService
                     dependencyClient,
                     dependencyDownloader,
                     Math.Max(0, settings.Download.Retries),
+                    settings.Download.AllowUnverified,
                     log,
                     cancellationToken);
                 if (!runtimeResult.Success)
@@ -396,6 +413,7 @@ public sealed class InstallWorkflowService
         HttpClient dependencyClient,
         IDownloadService dependencyDownloader,
         int retries,
+        bool allowUnverified,
         Action<string>? log,
         CancellationToken cancellationToken)
     {
@@ -427,6 +445,12 @@ public sealed class InstallWorkflowService
             Urls = runtimeUrls,
             Sha256 = string.Empty
         };
+        runtimeComponent = await FillMissingIntegrityMetadataAsync(runtimeComponent, dependencyClient, cancellationToken);
+        var runtimeInvalid = ValidateComponent(runtimeComponent, allowUnverified);
+        if (runtimeInvalid is not null)
+        {
+            return new TensorRtRuntimeEnsureResult(false, $"TensorRT 运行库元数据无效：{runtimeInvalid}");
+        }
 
         log?.Invoke($"开始下载 TensorRT 运行库: TRT {bundleInfo.TrtVersion}, CUDA {bundleInfo.CudaVersion}");
         var downloadResult = await AcquireComponentFileAsync(
@@ -476,15 +500,6 @@ public sealed class InstallWorkflowService
         else
         {
             log?.Invoke($"警告: {processPathMsg}");
-        }
-
-        if (TensorRtRuntimeService.EnsureMachinePath(runtimeDirs, out var machinePathMsg))
-        {
-            log?.Invoke(machinePathMsg);
-        }
-        else
-        {
-            log?.Invoke($"警告: {machinePathMsg}");
         }
 
         if (TensorRtRuntimeService.EnsureUserPath(runtimeDirs, out var userPathMsg))
@@ -780,7 +795,8 @@ public sealed class InstallWorkflowService
         HttpClient httpClient,
         Action<string>? log,
         CancellationToken cancellationToken,
-        string? preferredBackend = null)
+        string? preferredBackend = null,
+        bool allowUnverified = false)
     {
         if (kind == "lizzieyzy" && HasLegacyLizzieZipUrl(component))
         {
@@ -791,11 +807,18 @@ public sealed class InstallWorkflowService
         if (kind == "katago")
         {
             var backend = NormalizeBackend(preferredBackend);
-            if (!string.Equals(component.Backend, backend, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(component.Backend, backend, StringComparison.OrdinalIgnoreCase) ||
+                (!allowUnverified && !HasIntegrityMetadata(component)))
             {
                 log?.Invoke($"按选择后端安装 KataGo: {backend}");
                 return await ResolveKataGoAsync(component, httpClient, cancellationToken, backend);
             }
+        }
+
+        if (kind == "lizzieyzy" && !allowUnverified && !HasIntegrityMetadata(component))
+        {
+            log?.Invoke("LizzieYzy 缺少完整性元数据，自动刷新下载资产信息。");
+            return await ResolveLizzieAsync(component, httpClient, cancellationToken);
         }
 
         if (kind == "network" && ShouldRefreshNetworkFromSource(component))
@@ -897,7 +920,101 @@ public sealed class InstallWorkflowService
         return !string.IsNullOrWhiteSpace(value) && value.Contains("REPLACE", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string? ValidateComponent(ComponentModel component)
+    private static bool HasIntegrityMetadata(ComponentModel component)
+    {
+        return !string.IsNullOrWhiteSpace(NormalizeSha256OrEmpty(component.Sha256)) || component.Size > 0;
+    }
+
+    private static string NormalizeSha256OrEmpty(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return string.Empty;
+        }
+
+        var value = raw.Trim();
+        if (value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value["sha256:".Length..];
+        }
+
+        value = value.Trim().ToLowerInvariant();
+        return Regex.IsMatch(value, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant)
+            ? value
+            : string.Empty;
+    }
+
+    private static bool IsSafeSegment(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Contains("..", StringComparison.Ordinal) ||
+            trimmed.Contains('/') ||
+            trimmed.Contains('\\') ||
+            Path.IsPathRooted(trimmed))
+        {
+            return false;
+        }
+
+        return Regex.IsMatch(trimmed, "^[a-zA-Z0-9._+-]+$", RegexOptions.CultureInvariant);
+    }
+
+    private static async Task<ComponentModel> FillMissingIntegrityMetadataAsync(
+        ComponentModel component,
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        if (HasIntegrityMetadata(component) || component.Urls.Count == 0)
+        {
+            return component;
+        }
+
+        foreach (var rawUrl in component.Urls)
+        {
+            if (!Uri.TryCreate(rawUrl, UriKind.Absolute, out var uri))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var headRequest = new HttpRequestMessage(HttpMethod.Head, uri);
+                using var headResponse = await client.SendAsync(headRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                var headSize = headResponse.Content.Headers.ContentLength.GetValueOrDefault();
+                if (headResponse.IsSuccessStatusCode && headSize > 0)
+                {
+                    return component with { Size = headSize };
+                }
+            }
+            catch
+            {
+                // best effort
+            }
+
+            try
+            {
+                using var getRequest = new HttpRequestMessage(HttpMethod.Get, uri);
+                using var getResponse = await client.SendAsync(getRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                var getSize = getResponse.Content.Headers.ContentLength.GetValueOrDefault();
+                if (getResponse.IsSuccessStatusCode && getSize > 0)
+                {
+                    return component with { Size = getSize };
+                }
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        return component;
+    }
+
+    private static string? ValidateComponent(ComponentModel component, bool allowUnverified)
     {
         if (ContainsPlaceholder(component.Id))
         {
@@ -922,6 +1039,39 @@ public sealed class InstallWorkflowService
         if (component.Urls.Any(url => url.Contains("example.com", StringComparison.OrdinalIgnoreCase)))
         {
             return "下载地址仍是 example.com 占位域名";
+        }
+
+        if (!IsSafeSegment(component.Id))
+        {
+            return "ID 含非法路径字符";
+        }
+
+        if (!IsSafeSegment(component.Version))
+        {
+            return "version 含非法路径字符";
+        }
+
+        var normalizedSha = NormalizeSha256OrEmpty(component.Sha256);
+        if (!string.IsNullOrWhiteSpace(component.Sha256) && string.IsNullOrWhiteSpace(normalizedSha))
+        {
+            return "sha256 格式非法（应为 64 位十六进制）";
+        }
+
+        if (!string.IsNullOrWhiteSpace(component.Entry))
+        {
+            var entry = component.Entry.Trim();
+            if (entry.Contains("..", StringComparison.Ordinal) ||
+                entry.Contains('/') ||
+                entry.Contains('\\') ||
+                Path.IsPathRooted(entry))
+            {
+                return "entry 仅允许文件名，不能包含路径";
+            }
+        }
+
+        if (!allowUnverified && !HasIntegrityMetadata(component))
+        {
+            return "缺少完整性校验元数据（sha256/size）";
         }
 
         return null;
@@ -1005,7 +1155,8 @@ public sealed class InstallWorkflowService
             Version = version,
             Backend = backend,
             Urls = [url],
-            Sha256 = string.Empty
+            Size = selected.Size,
+            Sha256 = NormalizeSha256OrEmpty(selected.Sha256)
         };
     }
 
@@ -1042,6 +1193,10 @@ public sealed class InstallWorkflowService
                 var url = asset.TryGetProperty("browser_download_url", out var urlEl)
                     ? (urlEl.GetString() ?? string.Empty)
                     : string.Empty;
+                var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.ValueKind == JsonValueKind.Number
+                    ? sizeEl.GetInt64()
+                    : 0;
+                var sha256 = TryReadGithubAssetDigest(asset);
                 if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(url))
                 {
                     continue;
@@ -1058,7 +1213,9 @@ public sealed class InstallWorkflowService
                 candidates.Add(new KatagoAsset(
                     Url: url,
                     Tag: tag,
-                    File: file));
+                    File: file,
+                    Size: size,
+                    Sha256: sha256));
             }
 
             return candidates;
@@ -1084,10 +1241,22 @@ public sealed class InstallWorkflowService
                 return new KatagoAsset(
                     Url: "https://github.com" + path,
                     Tag: m.Groups["tag"].Value,
-                    File: m.Groups["file"].Value);
+                    File: m.Groups["file"].Value,
+                    Size: 0,
+                    Sha256: string.Empty);
             })
             .Where(a => !a.File.Contains("+bs50", StringComparison.OrdinalIgnoreCase))
             .ToList();
+    }
+
+    private static string TryReadGithubAssetDigest(JsonElement asset)
+    {
+        if (!asset.TryGetProperty("digest", out var digestEl) || digestEl.ValueKind != JsonValueKind.String)
+        {
+            return string.Empty;
+        }
+
+        return NormalizeSha256OrEmpty(digestEl.GetString());
     }
 
     private static string ResolveKataGoVersion(string tag, string fileName, string fallbackVersion)
@@ -1109,30 +1278,28 @@ public sealed class InstallWorkflowService
 
     private static async Task<ComponentModel> ResolveLizzieAsync(ComponentModel original, HttpClient client, CancellationToken cancellationToken)
     {
-        const string pageUrl = "https://github.com/yzyray/lizzieyzy/releases/latest";
-        var html = await client.GetStringAsync(pageUrl, cancellationToken);
-        var regex = new Regex(
-            "href=\"(?<path>/yzyray/lizzieyzy/releases/download/(?<tag>[^/]+)/(?<file>[^\"\\s]*\\.zip))\"",
-            RegexOptions.IgnoreCase);
-        var matches = regex.Matches(html).Cast<Match>().ToList();
-        if (matches.Count == 0)
+        var candidates = await LoadLizzieAssetsFromApiAsync(client, cancellationToken);
+        if (candidates.Count == 0)
+        {
+            candidates = await LoadLizzieAssetsFromHtmlAsync(client, cancellationToken);
+        }
+
+        if (candidates.Count == 0)
         {
             throw new InvalidOperationException("未在 LizzieYzy 最新发布页找到 zip 资产。");
         }
 
-        var chosen = matches.FirstOrDefault(m =>
-                m.Groups["file"].Value.Contains("windows64.without.engine.zip", StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault(m =>
-                m.Groups["file"].Value.Contains("windows64", StringComparison.OrdinalIgnoreCase) &&
-                m.Groups["file"].Value.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            ?? matches.FirstOrDefault(m =>
-                m.Groups["file"].Value.Contains("windows", StringComparison.OrdinalIgnoreCase))
-            ?? matches[0];
+        var chosen = candidates.FirstOrDefault(a =>
+                a.File.Contains("windows64.without.engine.zip", StringComparison.OrdinalIgnoreCase))
+            ?? candidates.FirstOrDefault(a =>
+                a.File.Contains("windows64", StringComparison.OrdinalIgnoreCase) &&
+                a.File.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            ?? candidates.FirstOrDefault(a =>
+                a.File.Contains("windows", StringComparison.OrdinalIgnoreCase))
+            ?? candidates[0];
 
-        var path = WebUtility.HtmlDecode(chosen.Groups["path"].Value);
-        var tag = chosen.Groups["tag"].Value;
-        var version = tag.TrimStart('v', 'V');
-        var url = "https://github.com" + path;
+        var version = chosen.Tag.TrimStart('v', 'V');
+        var url = chosen.Url;
 
         var id = ContainsPlaceholder(original.Id)
             ? $"lizzieyzy-{version}"
@@ -1143,9 +1310,92 @@ public sealed class InstallWorkflowService
             Id = id,
             Version = version,
             Urls = [url],
-            Sha256 = string.Empty,
+            Size = chosen.Size,
+            Sha256 = NormalizeSha256OrEmpty(chosen.Sha256),
             Entry = string.IsNullOrWhiteSpace(original.Entry) ? "LizzieYzy.exe" : original.Entry
         };
+    }
+
+    private static async Task<IReadOnlyList<LizzieAsset>> LoadLizzieAssetsFromApiAsync(HttpClient client, CancellationToken cancellationToken)
+    {
+        const string apiUrl = "https://api.github.com/repos/yzyray/lizzieyzy/releases/latest";
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, apiUrl);
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                return [];
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+            var root = doc.RootElement;
+            var tag = root.TryGetProperty("tag_name", out var tagEl)
+                ? (tagEl.GetString() ?? string.Empty)
+                : string.Empty;
+            if (!root.TryGetProperty("assets", out var assetsEl) || assetsEl.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var result = new List<LizzieAsset>();
+            foreach (var asset in assetsEl.EnumerateArray())
+            {
+                var file = asset.TryGetProperty("name", out var nameEl)
+                    ? (nameEl.GetString() ?? string.Empty)
+                    : string.Empty;
+                var url = asset.TryGetProperty("browser_download_url", out var urlEl)
+                    ? (urlEl.GetString() ?? string.Empty)
+                    : string.Empty;
+                var size = asset.TryGetProperty("size", out var sizeEl) && sizeEl.ValueKind == JsonValueKind.Number
+                    ? sizeEl.GetInt64()
+                    : 0;
+                var sha256 = TryReadGithubAssetDigest(asset);
+                if (string.IsNullOrWhiteSpace(file) ||
+                    string.IsNullOrWhiteSpace(url) ||
+                    !file.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                result.Add(new LizzieAsset(
+                    Url: url,
+                    Tag: tag,
+                    File: file,
+                    Size: size,
+                    Sha256: sha256));
+            }
+
+            return result;
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static async Task<IReadOnlyList<LizzieAsset>> LoadLizzieAssetsFromHtmlAsync(HttpClient client, CancellationToken cancellationToken)
+    {
+        const string pageUrl = "https://github.com/yzyray/lizzieyzy/releases/latest";
+        var html = await client.GetStringAsync(pageUrl, cancellationToken);
+        var regex = new Regex(
+            "href=\"(?<path>/yzyray/lizzieyzy/releases/download/(?<tag>[^/]+)/(?<file>[^\"\\s]*\\.zip))\"",
+            RegexOptions.IgnoreCase);
+        return regex.Matches(html)
+            .Cast<Match>()
+            .Select(m =>
+            {
+                var path = WebUtility.HtmlDecode(m.Groups["path"].Value);
+                return new LizzieAsset(
+                    Url: "https://github.com" + path,
+                    Tag: m.Groups["tag"].Value,
+                    File: m.Groups["file"].Value,
+                    Size: 0,
+                    Sha256: string.Empty);
+            })
+            .ToList();
     }
 
     private static async Task<ComponentModel> ResolveNetworkAsync(ComponentModel original, HttpClient client, CancellationToken cancellationToken)
@@ -1606,7 +1856,8 @@ public sealed class InstallWorkflowService
 
     private readonly record struct TensorRtBundleInfo(string TrtVersion, string CudaVersion);
     private readonly record struct TensorRtRuntimeEnsureResult(bool Success, string Message);
-    private sealed record KatagoAsset(string Url, string Tag, string File);
+    private sealed record KatagoAsset(string Url, string Tag, string File, long Size, string Sha256);
+    private sealed record LizzieAsset(string Url, string Tag, string File, long Size, string Sha256);
     private sealed record DownloadAcquireResult(bool Success, string Message, string? CachePath);
 }
 

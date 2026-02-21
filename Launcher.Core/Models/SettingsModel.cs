@@ -20,6 +20,7 @@ public sealed record DownloadModel
 {
     public int Concurrency { get; init; } = 3;
     public int Retries { get; init; } = 3;
+    public bool AllowUnverified { get; init; } = false;
 }
 
 public sealed record CacheModel

@@ -20,6 +20,7 @@ public sealed class SettingsPage : Page
     private readonly ComboBox _accentBox;
     private readonly TextBlock _statusText;
     private CudaModel _cuda = new();
+    private bool _allowUnverified;
 
     public SettingsPage()
     {
@@ -153,6 +154,7 @@ public sealed class SettingsPage : Page
         _proxyAddressBox.Text = model.Proxy.Address ?? string.Empty;
         _concurrencyBox.Text = model.Download.Concurrency.ToString();
         _retriesBox.Text = model.Download.Retries.ToString();
+        _allowUnverified = model.Download.AllowUnverified;
         _keepVersionsBox.Text = model.Cache.KeepVersions.ToString();
         _themeBox.SelectedItem = model.Ui.Theme;
         _accentBox.SelectedItem = model.Ui.Accent;
@@ -172,7 +174,8 @@ public sealed class SettingsPage : Page
             Download = new DownloadModel
             {
                 Concurrency = ParsePositive(_concurrencyBox.Text, 3),
-                Retries = ParsePositive(_retriesBox.Text, 3)
+                Retries = ParsePositive(_retriesBox.Text, 3),
+                AllowUnverified = _allowUnverified
             },
             Cache = new CacheModel
             {

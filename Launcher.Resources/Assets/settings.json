@@ -6,7 +6,8 @@
   },
   "download": {
     "concurrency": 3,
-    "retries": 3
+    "retries": 3,
+    "allowUnverified": false
   },
   "cache": {
     "keepVersions": 2

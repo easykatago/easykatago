@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using System.Text.RegularExpressions;
 using Launcher.Core.Abstractions;
 using Launcher.Core.Models;
 
@@ -8,21 +9,27 @@ namespace Launcher.Core.Services;
 public sealed class ArchiveInstallService : IInstallService
 {
     private static readonly Encoding GbkZipEncoding = CreateGbkZipEncoding();
+    private static readonly Regex SafeSegmentPattern = new("^[a-zA-Z0-9._+-]+$", RegexOptions.Compiled);
 
     public Task<string> InstallAsync(ComponentModel component, string archivePath, string installRoot, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var lowerName = component.Name.ToLowerInvariant();
+        var safeName = SanitizePathSegment(component.Name, "component");
+        var safeId = SanitizePathSegment(component.Id, safeName);
+        var safeVersion = SanitizePathSegment(component.Version, "unknown");
+        var safeBackend = SanitizePathSegment(component.Backend ?? "opencl", "opencl");
+        var lowerName = safeName.ToLowerInvariant();
         var type = (component.Type ?? string.Empty).ToLowerInvariant();
-        string targetDir = lowerName switch
+        var relativeDir = lowerName switch
         {
-            "katago" => Path.Combine(installRoot, "components", "katago", component.Version, component.Backend ?? "opencl"),
-            "lizzieyzy" => Path.Combine(installRoot, "components", "lizzieyzy", component.Version),
-            _ when type == "bin.gz" => Path.Combine(installRoot, "components", "networks", component.Id, component.Version),
-            _ when type == "cfg" => Path.Combine(installRoot, "components", "configs", component.Id, component.Version),
-            _ => Path.Combine(installRoot, "components", lowerName, component.Id, component.Version)
+            "katago" => Path.Combine("components", "katago", safeVersion, safeBackend),
+            "lizzieyzy" => Path.Combine("components", "lizzieyzy", safeVersion),
+            _ when type == "bin.gz" => Path.Combine("components", "networks", safeId, safeVersion),
+            _ when type == "cfg" => Path.Combine("components", "configs", safeId, safeVersion),
+            _ => Path.Combine("components", lowerName, safeId, safeVersion)
         };
-        ResetDirectory(targetDir);
+        var targetDir = ResolveTargetDirectory(installRoot, relativeDir);
+        ResetDirectory(installRoot, targetDir);
 
         var fileName = Path.GetFileName(archivePath);
         if (type == "zip" || archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
@@ -48,8 +55,9 @@ public sealed class ArchiveInstallService : IInstallService
         return Task.FromResult(targetPath);
     }
 
-    private static void ResetDirectory(string targetDir)
+    private static void ResetDirectory(string installRoot, string targetDir)
     {
+        EnsureUnderRoot(installRoot, targetDir);
         if (Directory.Exists(targetDir))
         {
             Directory.Delete(targetDir, recursive: true);
@@ -75,8 +83,8 @@ public sealed class ArchiveInstallService : IInstallService
         var entry = (component.Entry ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(entry))
         {
-            var direct = Path.Combine(targetDir, entry);
-            if (File.Exists(direct))
+            var direct = TryCombineUnderRoot(targetDir, entry);
+            if (!string.IsNullOrWhiteSpace(direct) && File.Exists(direct))
             {
                 return direct;
             }
@@ -190,5 +198,88 @@ public sealed class ArchiveInstallService : IInstallService
     {
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         return Encoding.GetEncoding("GB18030");
+    }
+
+    private static string ResolveTargetDirectory(string installRoot, string relativeDir)
+    {
+        var root = Path.GetFullPath(string.IsNullOrWhiteSpace(installRoot) ? "." : installRoot);
+        var target = Path.GetFullPath(Path.Combine(root, relativeDir));
+        EnsureUnderRoot(root, target);
+        return target;
+    }
+
+    private static void EnsureUnderRoot(string installRoot, string targetPath)
+    {
+        var root = Path.GetFullPath(string.IsNullOrWhiteSpace(installRoot) ? "." : installRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(targetPath);
+        var rootWithSep = root + Path.DirectorySeparatorChar;
+        if (!full.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(full, root, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"target path escapes install root: {targetPath}");
+        }
+    }
+
+    private static string? TryCombineUnderRoot(string root, string candidateRelativePath)
+    {
+        try
+        {
+            if (Path.IsPathRooted(candidateRelativePath))
+            {
+                return null;
+            }
+
+            var fullRoot = Path.GetFullPath(root);
+            var combined = Path.GetFullPath(Path.Combine(fullRoot, candidateRelativePath));
+            var rootWithSep = fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!combined.StartsWith(rootWithSep, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return combined;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string SanitizePathSegment(string? value, string fallback)
+    {
+        var segment = (value ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return fallback;
+        }
+
+        if (segment is "." or "..")
+        {
+            return fallback;
+        }
+
+        segment = segment.Replace('/', '-').Replace('\\', '-').Replace(':', '-');
+        foreach (var ch in Path.GetInvalidFileNameChars())
+        {
+            segment = segment.Replace(ch, '-');
+        }
+
+        segment = Regex.Replace(segment, "-{2,}", "-").Trim('-', ' ');
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return fallback;
+        }
+
+        if (!SafeSegmentPattern.IsMatch(segment))
+        {
+            segment = Regex.Replace(segment, @"[^a-zA-Z0-9._+\-]", "-").Trim('-', ' ');
+            if (string.IsNullOrWhiteSpace(segment))
+            {
+                return fallback;
+            }
+        }
+
+        return segment;
     }
 }
