@@ -1,0 +1,38 @@
+﻿{
+  "defaultProfileId": "p_default",
+  "profiles": [
+    {
+      "profileId": "p_default",
+      "displayName": "KataGo(OpenCL) + kata1-strongest + Balanced",
+      "katago": {
+        "version": "1.16.4",
+        "backend": "opencl",
+        "path": "components/katago/1.16.4/opencl/katago.exe",
+        "gtpArgs": "\"components/katago/1.16.4/opencl/katago.exe\" gtp -model \"components/networks/kata1-strongest/kata1-b28c512nbt-s12192929536-d5655876072/model.bin.gz\" -config \"components/configs/balanced/1/config.cfg\""
+      },
+      "network": {
+        "id": "kata1-strongest",
+        "name": "kata1 strongest",
+        "path": "components/networks/kata1-strongest/kata1-b28c512nbt-s12192929536-d5655876072/model.bin.gz",
+        "source": "katagotraining"
+      },
+      "config": {
+        "id": "balanced",
+        "path": "components/configs/balanced/1/config.cfg"
+      },
+      "lizzieyzy": {
+        "version": "2.5.3",
+        "type": "exe",
+        "path": "components/lizzieyzy/2.5.3/LizzieYzy.exe",
+        "workdir": "components/lizzieyzy/2.5.3/"
+      },
+      "tuning": {
+        "status": "unknown",
+        "lastBenchmarkAt": null,
+        "recommendedThreads": null
+      },
+      "createdAt": "2026-02-19T00:00:00Z",
+      "updatedAt": "2026-02-19T00:00:00Z"
+    }
+  ]
+}

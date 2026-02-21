@@ -1,0 +1,22 @@
+{
+  "installRoot": ".",
+  "proxy": {
+    "mode": "system",
+    "address": null
+  },
+  "download": {
+    "concurrency": 3,
+    "retries": 3
+  },
+  "cache": {
+    "keepVersions": 2
+  },
+  "cuda": {
+    "manualCudaDirectory": null,
+    "manualCudnnDirectory": null
+  },
+  "ui": {
+    "theme": "system",
+    "accent": "system"
+  }
+}

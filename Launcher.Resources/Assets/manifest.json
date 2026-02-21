@@ -1,0 +1,98 @@
+﻿{
+  "schemaVersion": 1,
+  "updatedAt": "2026-02-19T00:00:00Z",
+  "mirrors": [
+    {
+      "name": "github",
+      "baseUrls": [
+        "https://github.com/"
+      ]
+    },
+    {
+      "name": "katagotraining",
+      "baseUrls": [
+        "https://katagotraining.org/"
+      ]
+    }
+  ],
+  "components": {
+    "katago": [
+      {
+        "id": "katago-win-x64-opencl-1.16.4",
+        "name": "KataGo",
+        "version": "1.16.4",
+        "os": "windows",
+        "arch": "x64",
+        "backend": "opencl",
+        "type": "zip",
+        "urls": [
+          "https://github.com/lightvector/KataGo/releases/download/v1.16.4/katago-v1.16.4-opencl-windows-x64.zip",
+          "https://github.com/lightvector/KataGo/releases/latest/download/katago-v1.16.4-opencl-windows-x64.zip"
+        ],
+        "sha256": "",
+        "size": 0,
+        "entry": "katago.exe"
+      }
+    ],
+    "lizzieyzy": [
+      {
+        "id": "lizzieyzy-2.5.3",
+        "name": "LizzieYzy",
+        "version": "2.5.3",
+        "os": "windows",
+        "arch": "x64",
+        "type": "zip",
+        "urls": [
+          "https://github.com/yzyray/lizzieyzy/releases/download/2.5.3/2023-06-15-windows64.without.engine.zip",
+          "https://github.com/yzyray/lizzieyzy/releases/latest/download/2023-06-15-windows64.without.engine.zip"
+        ],
+        "sha256": "",
+        "size": 0,
+        "entry": "LizzieYzy.exe",
+        "workdirHint": "."
+      }
+    ],
+    "networks": [
+      {
+        "id": "kata1-strongest",
+        "name": "kata1 strongest",
+        "version": "kata1-b28c512nbt-s12192929536-d5655876072",
+        "type": "bin.gz",
+        "urls": [
+          "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b28c512nbt-s12192929536-d5655876072.bin.gz"
+        ],
+        "sha256": "",
+        "size": 0,
+        "tags": [
+          "latest"
+        ],
+        "source": "katagotraining",
+        "sourcePage": "https://katagotraining.org/networks/",
+        "publishedAt": "2026-01-06 18:33:52 UTC"
+      }
+    ],
+    "configs": [
+      {
+        "id": "balanced",
+        "name": "Balanced",
+        "version": "1",
+        "type": "cfg",
+        "urls": [
+          "https://raw.githubusercontent.com/lightvector/KataGo/master/cpp/configs/gtp_example.cfg"
+        ],
+        "sha256": "",
+        "size": 0,
+        "defaults": {
+          "numSearchThreads": 6
+        }
+      }
+    ],
+    "jre": []
+  },
+  "defaults": {
+    "katagoComponentId": "katago-win-x64-opencl-1.16.4",
+    "lizzieyzyComponentId": "lizzieyzy-2.5.3",
+    "networkId": "kata1-strongest",
+    "configId": "balanced"
+  }
+}

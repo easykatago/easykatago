@@ -1,0 +1,36 @@
+﻿# Build outputs
+**/bin/
+**/obj/
+dist/
+publish/
+
+# Runtime data / local outputs
+data/
+
+# IDE
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Local SDK caches
+.dotnet/
+.dotnet-home/
+.dotnet_cli/
+.templateengine/
+
+# Logs and temp
+*.log
+app-build.log
+app-build-norestore.log
+app-restore.log
+build_diag.log
+host_trace.txt
+test-run.log
+.tmp_*
+
+# OS
+Thumbs.db
+.DS_Store
