@@ -587,8 +587,27 @@ public sealed class ProfilesPage : Page
 
     private static string ResolvePath(string maybeRelative)
     {
-        return Path.IsPathRooted(maybeRelative)
-            ? maybeRelative
-            : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, maybeRelative));
+        if (string.IsNullOrWhiteSpace(maybeRelative))
+        {
+            return string.Empty;
+        }
+
+        var raw = maybeRelative.Trim();
+        if (!Path.IsPathRooted(raw))
+        {
+            return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, raw));
+        }
+
+        var root = Path.GetPathRoot(raw);
+        if (string.IsNullOrWhiteSpace(root) ||
+            string.Equals(root, Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+            string.Equals(root, Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        {
+            // Treat drive-relative rooted paths like "\components\..." as app-relative.
+            var trimmed = raw.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, trimmed));
+        }
+
+        return Path.GetFullPath(raw);
     }
 }

@@ -583,9 +583,28 @@ public sealed class LaunchWorkflowService
 
     private static string ResolvePath(string appRoot, string path)
     {
-        return Path.IsPathRooted(path)
-            ? Path.GetFullPath(path)
-            : Path.GetFullPath(Path.Combine(appRoot, path));
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+
+        var raw = path.Trim();
+        if (!Path.IsPathRooted(raw))
+        {
+            return Path.GetFullPath(Path.Combine(appRoot, raw));
+        }
+
+        var root = Path.GetPathRoot(raw);
+        if (string.IsNullOrWhiteSpace(root) ||
+            string.Equals(root, Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+            string.Equals(root, Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+        {
+            // Treat drive-relative rooted paths like "\components\..." as app-relative.
+            var trimmed = raw.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return Path.GetFullPath(Path.Combine(appRoot, trimmed));
+        }
+
+        return Path.GetFullPath(raw);
     }
 
     private static string NormalizeProfilePath(string appRoot, string path)
