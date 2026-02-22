@@ -1,4 +1,24 @@
-# EasyKataGo Launcher
+<p align="center">
+  <img src="Launcher.App/Assets/app-icon-preview.png" alt="EasyKataGo Icon" width="180" />
+</p>
+
+<h1 align="center">EasyKataGo</h1>
+
+<p align="center">KataGo 引擎 + 权重文件一站式管理启动器</p>
+
+<p align="center">
+  <a href="https://github.com/easykatago/easykatago/releases/latest">
+    <img src="https://img.shields.io/github/v/release/easykatago/easykatago?sort=semver&label=release" alt="Latest Release" />
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D6" alt="Platform Windows x64" />
+  <img src="https://img.shields.io/badge/.NET-10-512BD4" alt=".NET 10" />
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License" />
+  </a>
+  <a href="https://github.com/easykatago/easykatago/releases">
+    <img src="https://img.shields.io/github/downloads/easykatago/easykatago/total?label=downloads" alt="GitHub Downloads" />
+  </a>
+</p>
 
 轻量的 Windows 启动器，用于快速安装和启动 `KataGo + LizzieYzy` 组合。
 
