@@ -21,6 +21,7 @@
 </p>
 
 <p align="center"><sub>聚焦围棋 AI 对弈与分析：一键下载引擎和权重，快速管理多套配置档案，开箱即用。</sub></p>
+<p align="center"><sub>引擎GUI由 <a href="https://github.com/yzyray/lizzieyzy">LizzieYzy</a> 强力驱动。</sub></p>
 
 ## 界面预览
 <p align="center">
