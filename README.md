@@ -4,7 +4,7 @@
 
 <h1 align="center">EasyKataGo</h1>
 
-<p align="center">KataGo 引擎 + 权重文件一站式管理启动器</p>
+<p align="center">轻量级 KataGo 启动器</p>
 
 <p align="center">
   <a href="https://github.com/easykatago/easykatago/releases/latest">
@@ -20,7 +20,12 @@
   </a>
 </p>
 
-轻量的 Windows 启动器，用于快速安装和启动 `KataGo + LizzieYzy` 组合。
+<p align="center"><sub>一键下载引擎与权重，快速管理多套配置档案，开箱即用。</sub></p>
+
+## 界面预览
+<p align="center">
+  <img src="docs/images/gui-home.png" alt="EasyKataGo GUI Home" width="1000" />
+</p>
 
 ## 快速下载（推荐）
 - 最新版本（安装包 + 便携包）：https://github.com/easykatago/easykatago/releases/latest
@@ -35,6 +40,8 @@
 - 一键初始化配置与默认档案
 - 支持 OpenCL / CUDA / TensorRT 后端选择
 - 自动下载引擎、网络权重和默认配置
+- 一键基准测试与调优
+- 支持手动写入引擎线程
 - 内置日志与诊断导出
 
 ## 开发者：本地构建
