@@ -4,7 +4,7 @@
 
 <h1 align="center">EasyKataGo</h1>
 
-<p align="center">轻量级 KataGo 启动器</p>
+<p align="center">面向围棋 AI 引擎 KataGo 的轻量级启动器</p>
 
 <p align="center">
   <a href="https://github.com/easykatago/easykatago/releases/latest">
@@ -20,7 +20,7 @@
   </a>
 </p>
 
-<p align="center"><sub>一键下载引擎与权重，快速管理多套配置档案，开箱即用。</sub></p>
+<p align="center"><sub>聚焦围棋 AI 对弈与分析：一键下载引擎和权重，快速管理多套配置档案，开箱即用。</sub></p>
 
 ## 界面预览
 <p align="center">
@@ -37,6 +37,7 @@
 - 源码构建/调试时：需要安装 `.NET SDK 10.x`。
 
 ## 特性
+- 面向围棋 AI 引擎 KataGo 的安装、配置与启动管理
 - 一键初始化配置与默认档案
 - 支持 OpenCL / CUDA / TensorRT 后端选择
 - 自动下载引擎、网络权重和默认配置
