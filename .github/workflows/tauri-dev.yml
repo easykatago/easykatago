@@ -62,7 +62,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: cargo build --release --manifest-path Launcher.Tauri/src-tauri/Cargo.toml
 
-      - name: Package portable dev build
+      - name: Prepare dev stage files
         if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         run: |
@@ -81,12 +81,29 @@ jobs:
           )
           Set-Content -Path (Join-Path $stage "Start-EasyKataGoLauncher.cmd") -Value $launcherScript -Encoding ascii
 
-          Compress-Archive -Path "$stage\*" -DestinationPath "out/easykatago-tauri-dev-win-x64.zip" -Force
+      - name: Install Inno Setup
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
 
-      - name: Upload dev build artifact
+      - name: Build dev installer
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          }
+          if (!(Test-Path $iscc)) {
+            throw "ISCC.exe not found after Inno Setup install."
+          }
+
+          & $iscc "/DSourceDir=$pwd\out\easykatago-tauri-dev-win-x64" "/DMyOutputDir=$pwd\out" "/DMyOutputBaseFilename=EasyKataGoLauncher-TauriDev-Setup" "scripts/installer/EasyKataGoLauncher-TauriDev.iss"
+
+      - name: Upload dev installer artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: easykatago-tauri-dev-win-x64
-          path: out/easykatago-tauri-dev-win-x64.zip
+          name: easykatago-tauri-dev-installer
+          path: out/EasyKataGoLauncher-TauriDev-Setup.exe
           if-no-files-found: error
