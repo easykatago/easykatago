@@ -32,3 +32,13 @@ pub async fn profiles_write(
 ) -> Result<Value, String> {
     state.bridge.invoke("profiles.write", Some(payload)).await
 }
+
+#[tauri::command]
+pub async fn install_run(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    state.bridge.invoke("install.run", None).await
+}
+
+#[tauri::command]
+pub async fn launch_run(state: tauri::State<'_, AppState>) -> Result<Value, String> {
+    state.bridge.invoke("launch.run", None).await
+}

@@ -26,6 +26,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             commands::settings_read,
             commands::settings_write,
             commands::profiles_read,
-            commands::profiles_write
+            commands::profiles_write,
+            commands::install_run,
+            commands::launch_run
         ])
 }

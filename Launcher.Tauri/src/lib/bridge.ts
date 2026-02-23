@@ -16,3 +16,11 @@ export async function profilesRead(): Promise<ProfilesData> {
 export async function profilesWrite(payload: ProfilesData): Promise<ProfilesData> {
   return invoke("profiles_write", { payload });
 }
+
+export async function installRun(): Promise<{ status: string }> {
+  return invoke("install_run");
+}
+
+export async function launchRun(): Promise<{ status: string }> {
+  return invoke("launch_run");
+}
